@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>API EZV</title>
+    <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" type="image/png">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(to right, #004080, #00bfff); /* Gradiente azul */
+            color: #fff; /* Texto branco */
+        }
+
+        #app {
+            width: 110%;
+            max-width: 350px;
+            background: rgba(255, 255, 255, 0.9); /* Fundo branco com leve transparência */
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            text-align: center;
+            transition: transform 0.3s ease; /* Transição suave */
+        }
+        #app:hover {
+            transform: scale(1.02); /* Efeito de zoom ao passar o mouse */
+        }
+
+        h1 {
+            color: #004080; /* Azul marinho */
+            font-weight: 700;
+            font-size: 22px;
+            margin-bottom: 10px;
+        }
+        h3 {
+            margin-bottom: 15px;
+            color: #004080; /* Azul marinho */
+            font-weight: 700;
+        }
+        #qrcode {
+            display: none;
+            width: 100%;
+            margin: 15px 0;
+            border: 2px solid #004080; /* Azul marinho */
+            border-radius: 8px;
+            animation: fadeIn 1s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        ul.logs {
+            max-height: 150px;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 4px;
+            overflow-y: auto;
+            background: #f0f0f0; /* Fundo claro */
+            color: #333; /* Texto mais escuro */
+            font-size: 14px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s; /* Transição suave */
+        }
+        ul.logs li:first-child {
+            color: #004080; /* Azul marinho */
+            font-weight: bold;
+        }
+        ul.logs li:hover {
+            background: #e6f7ff; /* Azul claro ao passar o mouse */
+        }
+        .logo {
+            display: block;
+            margin: 0 auto 20px;
+            max-width: 60%;
+            height: auto;
+        }
+        button {
+            background-color: #004080; /* Azul marinho */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 20px; /* Tamanho do botão */
+            font-size: 14px; /* Tamanho da fonte do botão */
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s; /* Transição suave */
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #003366; /* Cor mais escura ao passar o mouse */
+            transform: scale(1.05); /* Efeito de zoom ao passar o mouse */
+        }
+
+        /* Responsividade */
+        @media (max-width: 768px) {
+            #app {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 20px;
+            }
+
+            h3 {
+                font-size: 18px;
+            }
+
+            button {
+                padding: 8px 16px;
+                font-size: 12px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 18px;
+            }
+
+            h3 {
+                font-size: 16px;
+            }
+
+            .logo {
+                max-width: 80%;
+            }
+
+            button {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+
+            ul.logs {
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h1>BOT EZV</h1>
+        <h3>ErLink Tecnologia!</h3>
+        <img src="https://lh3.googleusercontent.com/pw/AP1GczPBW7Cp3CYjxeNr-ku5_e-NgEjGnGVt6tBdc9mcT8w3ANTuCE2wXjfXY5dBc0gFZKzIuYmSbFNU-7ngVi3GqDth8BqN1TuNnXKOVJJDm9i7cvdxVRMt93lY89S4c8wvcwRmvhegG4mpHoIpN9g6dIntew=w1747-h1215-s-no-gm?authuser=0" alt="Logo" class="logo">
+        <img src="" alt="QR Code" id="qrcode">
+        <h3>Faça a autenticação</h3>
+        <ul class="logs"></ul>
+        <button id="sendMessageButton">Enviar Mensagem</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js" crossorigin="anonymous"></script>
+    <script>
+        $(document).ready(function() {
+            var socket = io();
+
+            socket.on('message', function(msg) {
+                $('.logs').prepend($('<li>').text(msg));
+            });
+
+            socket.on('qr', function(src) {
+                $('#qrcode').attr('src', src);
+                $('#qrcode').show().hide().fadeIn(1000);
+            });
+
+            socket.on('ready', function(data) {
+                $('#qrcode').hide();
+            });
+
+            socket.on('authenticated', function(data) {
+                $('#qrcode').hide();
+            });
+
+            // Função para enviar mensagem via WhatsApp
+            $('#sendMessageButton').on('click', function() {
+                const phoneNumber = '559491985575'; // Número para o qual a mensagem será enviada
+                const message = 'Olá! Esta é uma mensagem do BOT EZV.'; // Mensagem a ser enviada
+                const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+                window.open(url, '_blank'); // Abre o WhatsApp Web com a mensagem
+            });
+        });
+    </script>
+</body>
+</html>
