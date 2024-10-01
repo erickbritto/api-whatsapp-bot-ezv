@@ -23,7 +23,7 @@ Antes de começar, você precisará ter o seguinte instalado:
 1. Clone o repositório:
 
    ```bash
-   git clone https://github.com/seuusuario/seurepositorio.git
+   git clone https://github.com/erickbritto/api-whatsapp-bot-ezv.git
    cd seurepositorio
    ```
 
