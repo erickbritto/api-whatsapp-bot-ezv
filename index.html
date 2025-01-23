@@ -1,191 +1,325 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <title>API EZV</title>
-    <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" type="image/png">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+const express = require('express');
+const path = require('path');
+const http = require('http');
+const socketIo = require('socket.io');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+require('dotenv').config();
+
+// Função para validar e corrigir números de telefone
+const validateAndFormatNumber = (number) => {
+    if (!/^\d+$/.test(number)) {
+        throw new Error('O número deve conter apenas dígitos.');
+    }
+
+    if (number.length < 11 || number.length > 13) {
+        throw new Error('O número deve ter entre 11 e 13 dígitos, incluindo o DDI e DDD.');
+    }
+
+    const numberDDI = number.substr(0, 2);
+    const numberDDD = number.substr(2, 2);
+    const numberUser = number.substr(-8, 8);
+
+    if (numberDDI === "55") {
+        if (parseInt(numberDDD) <= 30 && numberUser.length === 8) {
+            return `55${numberDDD}9${numberUser}`;
         }
-        body {
-            font-family: 'Poppins', sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: linear-gradient(to right, #004080, #00bfff); /* Gradiente azul */
-            color: #fff; /* Texto branco */
+        return `55${numberDDD}${numberUser}`;
+    }
+
+    return number;
+};
+
+// Configuração de dispositivos
+const devices = [
+    { name: "Device1", port: 3000, authPath: 'session1' },
+    { name: "Device2", port: 3001, authPath: 'session2' },
+    { name: "Device3", port: 3002, authPath: 'session3' },
+];
+
+// Inicializando servidores para cada dispositivo
+devices.forEach((device) => {
+    const app = express();
+    const server = http.createServer(app);
+    const io = socketIo(server, {
+        cors: {
+            origin: "*",
+            methods: ["GET", "POST"],
+        },
+    });
+
+    app.use(express.json());
+    let currentQrCode = null;
+    let isConnected = false;
+
+    const client = new Client({
+        authStrategy: new LocalAuth({ clientId: device.authPath }),
+        puppeteer: {
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            headless: true,
+            timeout: 60000,
+        },
+    });
+
+    // Middleware de autenticação
+    app.use((req, res, next) => {
+        const { u, p } = req.query;
+
+        if (req.path === '/' || req.path.startsWith('/public')) {
+            return next();
         }
 
-        #app {
-            width: 110%;
-            max-width: 350px;
-            background: rgba(255, 255, 255, 0.9); /* Fundo branco com leve transparência */
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-            padding: 20px;
-            text-align: center;
-            transition: transform 0.3s ease; /* Transição suave */
-        }
-        #app:hover {
-            transform: scale(1.02); /* Efeito de zoom ao passar o mouse */
-        }
+        const expectedUser = process.env[`DEVICE${device.name.slice(-1)}_API_USER`];
+        const expectedPassword = process.env[`DEVICE${device.name.slice(-1)}_API_PASSWORD`];
 
-        h1 {
-            color: #004080; /* Azul marinho */
-            font-weight: 700;
-            font-size: 22px;
-            margin-bottom: 10px;
-        }
-        h3 {
-            margin-bottom: 15px;
-            color: #004080; /* Azul marinho */
-            font-weight: 700;
-        }
-        #qrcode {
-            display: none;
-            width: 100%;
-            margin: 15px 0;
-            border: 2px solid #004080; /* Azul marinho */
-            border-radius: 8px;
-            animation: fadeIn 1s ease;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        ul.logs {
-            max-height: 150px;
-            padding: 15px;
-            margin-top: 10px;
-            border-radius: 4px;
-            overflow-y: auto;
-            background: #f0f0f0; /* Fundo claro */
-            color: #333; /* Texto mais escuro */
-            font-size: 14px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            transition: background-color 0.3s; /* Transição suave */
-        }
-        ul.logs li:first-child {
-            color: #004080; /* Azul marinho */
-            font-weight: bold;
-        }
-        ul.logs li:hover {
-            background: #e6f7ff; /* Azul claro ao passar o mouse */
-        }
-        .logo {
-            display: block;
-            margin: 0 auto 20px;
-            max-width: 60%;
-            height: auto;
-        }
-        button {
-            background-color: #004080; /* Azul marinho */
-            color: white;
-            border: none;
-            border-radius: 5px;
-            padding: 10px 20px; /* Tamanho do botão */
-            font-size: 14px; /* Tamanho da fonte do botão */
-            cursor: pointer;
-            transition: background-color 0.3s, transform 0.2s; /* Transição suave */
-            margin-top: 10px;
-        }
-        button:hover {
-            background-color: #003366; /* Cor mais escura ao passar o mouse */
-            transform: scale(1.05); /* Efeito de zoom ao passar o mouse */
-        }
-
-        /* Responsividade */
-        @media (max-width: 768px) {
-            #app {
-                padding: 20px;
-            }
-
-            h1 {
-                font-size: 20px;
-            }
-
-            h3 {
-                font-size: 18px;
-            }
-
-            button {
-                padding: 8px 16px;
-                font-size: 12px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            h1 {
-                font-size: 18px;
-            }
-
-            h3 {
-                font-size: 16px;
-            }
-
-            .logo {
-                max-width: 80%;
-            }
-
-            button {
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-
-            ul.logs {
-                font-size: 12px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div id="app">
-        <h1>BOT EZV</h1>
-        <h3>ErLink Tecnologia!</h3>
-        <img src="https://lh3.googleusercontent.com/pw/AP1GczPBW7Cp3CYjxeNr-ku5_e-NgEjGnGVt6tBdc9mcT8w3ANTuCE2wXjfXY5dBc0gFZKzIuYmSbFNU-7ngVi3GqDth8BqN1TuNnXKOVJJDm9i7cvdxVRMt93lY89S4c8wvcwRmvhegG4mpHoIpN9g6dIntew=w1747-h1215-s-no-gm?authuser=0" alt="Logo" class="logo">
-        <img src="" alt="QR Code" id="qrcode">
-        <h3>Faça a autenticação</h3>
-        <ul class="logs"></ul>
-        <button id="sendMessageButton">Enviar Mensagem</button>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js" crossorigin="anonymous"></script>
-    <script>
-        $(document).ready(function() {
-            var socket = io();
-
-            socket.on('message', function(msg) {
-                $('.logs').prepend($('<li>').text(msg));
+        if (u !== expectedUser || p !== expectedPassword) {
+            return res.status(403).json({
+                status: 'error',
+                message: `Acesso negado para ${device.name}. Usuário ou senha inválidos.`,
             });
+        }
 
-            socket.on('qr', function(src) {
-                $('#qrcode').attr('src', src);
-                $('#qrcode').show().hide().fadeIn(1000);
-            });
+        next();
+    });
 
-            socket.on('ready', function(data) {
-                $('#qrcode').hide();
-            });
+    // Servir arquivos estáticos e index.html
+    app.use(express.static(path.join(__dirname, 'public')));
+    app.get('/', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    });
 
-            socket.on('authenticated', function(data) {
-                $('#qrcode').hide();
-            });
+    client.on('qr', (qr) => {
+        console.log(`[${device.name}] QR Code gerado:`, qr);
+        currentQrCode = qr;
+        isConnected = false;
+        io.emit('qr', qr);
+    });
 
-            // Função para enviar mensagem via WhatsApp
-            $('#sendMessageButton').on('click', function() {
-                const phoneNumber = '559491985575'; // Número para o qual a mensagem será enviada
-                const message = 'Olá! Esta é uma mensagem do BOT EZV.'; // Mensagem a ser enviada
-                const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-                window.open(url, '_blank'); // Abre o WhatsApp Web com a mensagem
-            });
+    client.on('ready', () => {
+        console.log(`[${device.name}] WhatsApp conectado e pronto para uso!`);
+        io.emit('ready', 'WhatsApp conectado e pronto para uso!');
+        currentQrCode = null;
+        isConnected = true;
+    });
+
+    client.on('authenticated', () => {
+        console.log(`[${device.name}] Autenticado com sucesso!`);
+        io.emit('authenticated', 'Autenticado com sucesso!');
+        currentQrCode = null;
+        isConnected = true;
+    });
+
+    client.on('auth_failure', (msg) => {
+        console.error(`[${device.name}] Falha na autenticação:`, msg);
+        io.emit('auth_failure', 'Falha na autenticação.');
+        currentQrCode = null;
+        isConnected = false;
+    });
+
+    client.on('disconnected', (reason) => {
+        console.log(`[${device.name}] Cliente desconectado. Motivo: ${reason}`);
+        client.destroy().then(() => {
+            console.log(`[${device.name}] Reiniciando cliente...`);
+            client.initialize();
         });
-    </script>
-</body>
-</html>
+    });
+
+    client.on('error', (error) => {
+        console.error(`[${device.name}] Erro do cliente:`, error);
+        client.destroy().then(() => {
+            console.log(`[${device.name}] Reiniciando cliente devido a erro...`);
+            client.initialize();
+        });
+    });
+
+    io.on('connection', (socket) => {
+        console.log(`[${device.name}] Cliente conectado ao WebSocket.`);
+        if (isConnected) {
+            socket.emit('ready', 'WhatsApp conectado e pronto para uso!');
+        } else if (currentQrCode) {
+            socket.emit('qr', currentQrCode);
+        } else {
+            socket.emit('disconnected', 'Aguardando geração do QR Code.');
+        }
+        socket.on('disconnect', () => {
+            console.log(`[${device.name}] Cliente desconectado do WebSocket.`);
+        });
+    });
+
+    client.initialize();
+
+// Endpoint para enviar mensagem via query string
+app.get('/sendMessage', async (req, res) => {
+    const { u, p, to, msg, app } = req.query;
+
+    if (!u || !p || !to || !msg || !app) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Parâmetros obrigatórios ausentes.',
+        });
+    }
+
+    // Validar usuário e senha
+    const expectedUser = process.env[`DEVICE${device.name.slice(-1)}_API_USER`];
+    const expectedPassword = process.env[`DEVICE${device.name.slice(-1)}_API_PASSWORD`];
+
+    if (u !== expectedUser || p !== expectedPassword) {
+        return res.status(403).json({
+            status: 'error',
+            message: `Acesso negado para ${device.name}. Usuário ou senha inválidos.`,
+        });
+    }
+
+    // Validar o parâmetro `app`
+    if (app !== 'webservices') {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Parâmetro "app" inválido.',
+        });
+    }
+
+    try {
+        // Validar e formatar o número
+        const formattedNumber = validateAndFormatNumber(to);
+        const chatId = `${formattedNumber}@c.us`;
+
+        // Enviar mensagem
+        await client.sendMessage(chatId, msg);
+        res.status(200).json({
+            status: 'success',
+            message: `Mensagem enviada para ${formattedNumber}.`,
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            message: `Erro ao enviar mensagem: ${error.message}`,
+        });
+    }
+});
+
+
+    // Endpoint para listar grupos
+    app.get('/list-groups', async (req, res) => {
+        try {
+            const chats = await client.getChats();
+            const groups = chats.filter(chat => chat.isGroup);
+
+            const groupList = groups.map(group => ({
+                name: group.name,
+                id: group.id._serialized
+            }));
+
+            res.status(200).json({
+                status: 'success',
+                groups: groupList
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: 'error',
+                message: 'Erro ao listar grupos',
+                error: error.message
+            });
+        }
+    });
+
+    // Endpoint para enviar mensagem
+    app.post('/send-message', async (req, res) => {
+        const { number, message } = req.body;
+        if (!number || !message) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Parâmetros obrigatórios ausentes.'
+            });
+        }
+        try {
+            const formattedNumber = validateAndFormatNumber(number);
+            const chatId = `${formattedNumber}@c.us`;
+            await client.sendMessage(chatId, message);
+            res.status(200).json({
+                status: 'success',
+                message: `Mensagem enviada para ${formattedNumber}`
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: 'error',
+                message: error.message
+            });
+        }
+    });
+
+    // Endpoint para enviar mídia
+    app.post('/send-media', async (req, res) => {
+        const { number, caption, file } = req.body;
+        if (!number || !file) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Parâmetros obrigatórios ausentes.'
+            });
+        }
+        try {
+            const formattedNumber = validateAndFormatNumber(number);
+            const chatId = `${formattedNumber}@c.us`;
+            const media = await MessageMedia.fromUrl(file, { unsafeMime: true });
+            await client.sendMessage(chatId, media, { caption });
+            res.status(200).json({
+                status: 'success',
+                message: `Mídia enviada para ${formattedNumber}`
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: 'error',
+                message: error.message
+            });
+        }
+    });
+
+    // Endpoint para enviar mensagem para grupo
+    app.post('/send-group-message', async (req, res) => {
+        const { id, message } = req.body;
+        if (!id || !message) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Parâmetros obrigatórios ausentes.'
+            });
+        }
+        try {
+            await client.sendMessage(id, message);
+            res.status(200).json({
+                status: 'success',
+                message: `Mensagem enviada para o grupo ${id}`
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: 'error',
+                message: error.message
+            });
+        }
+    });
+
+    // Endpoint para enviar mídia para grupo
+    app.post('/send-group-media', async (req, res) => {
+        const { id, caption, file } = req.body;
+        if (!id || !file) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Parâmetros obrigatórios ausentes.'
+            });
+        }
+        try {
+            const media = await MessageMedia.fromUrl(file, { unsafeMime: true });
+            await client.sendMessage(id, media, { caption });
+            res.status(200).json({
+                status: 'success',
+                message: `Mídia enviada para o grupo ${id}`
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: 'error',
+                message: error.message
+            });
+        }
+    });
+
+    server.listen(device.port, () => {
+        console.log(`[${device.name}] Servidor rodando em http://localhost:${device.port}`);
+    });
+});
